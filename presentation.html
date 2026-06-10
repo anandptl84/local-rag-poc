@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local RAG POC — Team Walkthrough</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<style>
+  :root{
+    --accent:#5eead4; --accent2:#818cf8; --warn:#fbbf24; --bad:#f87171; --good:#4ade80;
+    --ink:#e8e8ef; --dim:#9aa0b4;
+  }
+  .reveal { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); }
+  .reveal h1,.reveal h2,.reveal h3{ color:#fff; text-transform:none; letter-spacing:-.01em; font-weight:700;}
+  .reveal h1{ font-size:2.0em;}
+  .reveal h2{ font-size:1.5em;}
+  .reveal section{ text-align:left; }
+  .reveal .center{ text-align:center; }
+  .accent{ color:var(--accent);} .accent2{ color:var(--accent2);}
+  .warn{color:var(--warn);} .bad{color:var(--bad);} .good{color:var(--good);}
+  .dim{ color:var(--dim);}
+  .pill{ display:inline-block; padding:.15em .6em; border-radius:999px; font-size:.5em; vertical-align:middle; background:rgba(94,234,212,.15); color:var(--accent); border:1px solid rgba(94,234,212,.4); margin-left:.4em;}
+  .reveal small{ color:var(--dim);}
+  .reveal pre{ box-shadow:none; width:100%; font-size:.42em;}
+  .reveal pre code{ border-radius:10px; padding:14px 18px; max-height:none;}
+  .reveal table{ font-size:.62em;}
+  .reveal table th{ color:var(--accent); border-bottom:2px solid rgba(94,234,212,.4);}
+  .reveal td,.reveal th{ padding:.3em .6em;}
+  .grid{ display:grid; gap:14px;}
+  .g2{ grid-template-columns:1fr 1fr;}
+  .g3{ grid-template-columns:repeat(3,1fr);}
+  .card{ background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:14px; padding:16px 18px; font-size:.78em;}
+  .card h3{ margin:0 0 .3em; font-size:1.05em;}
+  .flow{ display:flex; align-items:stretch; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:18px;}
+  .step{ background:rgba(129,140,248,.12); border:1px solid rgba(129,140,248,.45); border-radius:12px; padding:12px 14px; font-size:.62em; flex:1; min-width:120px; position:relative;}
+  .step .n{ position:absolute; top:-12px; left:-10px; background:var(--accent2); color:#0b0b14; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.9em;}
+  .step b{ color:#fff;}
+  .step.local{ background:rgba(74,222,128,.10); border-color:rgba(74,222,128,.45);}
+  .step.paid{ background:rgba(251,191,36,.12); border-color:rgba(251,191,36,.55);}
+  .arrow{ align-self:center; color:var(--dim); font-size:1.4em;}
+  .tag{ display:inline-block; font-size:.78em; padding:.05em .5em; border-radius:6px; margin-top:8px;}
+  .tag.free{ background:rgba(74,222,128,.15); color:var(--good); border:1px solid rgba(74,222,128,.4);}
+  .tag.cost{ background:rgba(251,191,36,.15); color:var(--warn); border:1px solid rgba(251,191,36,.5);}
+  .big{ font-size:1.3em; line-height:1.5;}
+  .reveal ul{ font-size:.85em;}
+  .footer{ position:fixed; bottom:8px; right:14px; font-size:12px; color:var(--dim); z-index:20;}
+  .analogy{ background:rgba(94,234,212,.08); border-left:4px solid var(--accent); padding:10px 16px; border-radius:8px; font-size:.8em;}
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 TITLE -->
+<section class="center" data-background-gradient="radial-gradient(circle at 50% 30%, #1b2540, #0b0b14)">
+  <h1>Local RAG POC</h1>
+  <h3 class="accent" style="font-weight:500;">How our document Q&amp;A service actually works</h3>
+  <p class="dim">A walkthrough for engineers — no RAG background needed</p>
+  <p class="dim" style="margin-top:40px; font-size:.7em;">⏱ ~10 min &nbsp;·&nbsp; →/space to advance &nbsp;·&nbsp; <span class="accent">S</span> for speaker notes</p>
+  <aside class="notes">Goal: by the end everyone understands what RAG is, how this repo implements it, and where money (tokens) gets spent. Keep it concrete.</aside>
+</section>
+
+<!-- 2 ONE SENTENCE -->
+<section data-background-color="#0b0b14">
+  <h2>The whole thing in one sentence</h2>
+  <p class="big" style="margin-top:30px;">
+    Take a PDF → break it into pieces → store them in a searchable database →
+    when someone asks a question, <span class="accent">find the relevant pieces</span>
+    and ask an LLM to <span class="accent2">answer using only those pieces</span>.
+  </p>
+  <div class="analogy" style="margin-top:30px;">
+    🧠 <b>Analogy:</b> It's an <b>open-book exam</b> for the AI. Instead of answering from
+    memory, it must point to the page in our document. No page = no answer.
+  </div>
+  <aside class="notes">This is the anchor. Everything else is detail on these two halves: retrieval (find pieces) and generation (write answer).</aside>
+</section>
+
+<!-- 3 WHAT IS RAG -->
+<section data-background-color="#0b0b14">
+  <h2>What is <span class="accent">RAG</span>?</h2>
+  <p class="dim" style="margin-top:-6px;">Retrieval-Augmented Generation</p>
+  <div class="grid g3" style="margin-top:20px;">
+    <div class="card"><h3 class="accent">Retrieval</h3>Search <i>our</i> documents and pull out the few passages most relevant to the question.</div>
+    <div class="card"><h3 class="accent2">Augmented</h3>Inject those passages into the LLM's prompt as <b>context</b>.</div>
+    <div class="card"><h3>Generation</h3>The LLM writes a natural-language answer — grounded in what we gave it.</div>
+  </div>
+  <div class="grid g2" style="margin-top:24px;">
+    <div class="card"><b class="bad">Plain LLM</b><br><small>Answers from training memory. Doesn't know <i>our</i> PDFs. Can confidently make things up (“hallucinate”). Can't cite a source.</small></div>
+    <div class="card"><b class="good">RAG</b><br><small>Answers from <i>our</i> documents. Can cite source + page. Says “not in the docs” instead of guessing.</small></div>
+  </div>
+  <aside class="notes">The key win: grounding + citations + a clean refusal path. That's why enterprises use RAG instead of fine-tuning for document Q&A.</aside>
+</section>
+
+<!-- 4 WHY NOT JUST ASK THE LLM -->
+<section data-background-color="#0b0b14">
+  <h2>Why not just paste the whole PDF into the LLM?</h2>
+  <ul style="margin-top:20px;">
+    <li>📏 <b>It may not fit</b> — big docs blow past the context window.</li>
+    <li>💸 <b>Cost</b> — you'd pay to send the entire document on <i>every</i> question.</li>
+    <li>🎯 <b>Accuracy</b> — burying the answer in 100 pages of noise makes the model worse, not better.</li>
+    <li>🔁 <b>Reuse</b> — ingest once, ask thousands of questions cheaply.</li>
+  </ul>
+  <div class="analogy" style="margin-top:24px;">
+    RAG's trick: send the LLM <b>only the 4 paragraphs that matter</b>, not the whole book.
+  </div>
+  <aside class="notes">This motivates chunking + retrieval. The "send only what matters" line is the cost story in a nutshell.</aside>
+</section>
+
+<!-- 5 THE RAG PROTOCOL / FLOW -->
+<section data-background-color="#0b0b14">
+  <h2>The RAG protocol — two phases</h2>
+  <p class="accent2" style="margin:14px 0 4px;">① INGEST &nbsp;<span class="dim">— done once per document</span></p>
+  <div class="flow">
+    <div class="step local"><span class="n">1</span><b>Load</b><br>read PDF text, keep page #s</div>
+    <div class="arrow">→</div>
+    <div class="step local"><span class="n">2</span><b>Chunk</b><br>cut into ~800-char overlapping pieces</div>
+    <div class="arrow">→</div>
+    <div class="step local"><span class="n">3</span><b>Embed</b><br>turn each chunk into a vector</div>
+    <div class="arrow">→</div>
+    <div class="step local"><span class="n">4</span><b>Store</b><br>save vectors + text in vector DB</div>
+  </div>
+  <p class="center"><span class="tag free">all local · free · no tokens</span></p>
+
+  <p class="accent2" style="margin:18px 0 4px;">② QUERY &nbsp;<span class="dim">— done every question</span></p>
+  <div class="flow">
+    <div class="step local"><span class="n">1</span><b>Embed</b><br>turn question into a vector</div>
+    <div class="arrow">→</div>
+    <div class="step local"><span class="n">2</span><b>Search</b><br>find top-k closest chunks</div>
+    <div class="arrow">→</div>
+    <div class="step paid"><span class="n">3</span><b>Generate</b><br>LLM answers from those chunks</div>
+    <div class="arrow">→</div>
+    <div class="step local"><span class="n">4</span><b>Cite</b><br>attach source + page</div>
+  </div>
+  <p class="center"><span class="tag free">local · free</span> &nbsp; <span class="tag cost">⚡ step 3 = Gemini = the only paid step</span></p>
+  <aside class="notes">This is THE slide. Green = local/free, amber = paid. Note the symmetry: same embedding model used in both phases. Only generation calls an external API.</aside>
+</section>
+
+<!-- 6 EMBEDDINGS EXPLAINED -->
+<section data-background-color="#0b0b14">
+  <h2>What's an <span class="accent">embedding</span>? (the one new concept)</h2>
+  <div class="grid g2" style="margin-top:16px;">
+    <div>
+      <p>A model converts a piece of text into a <b>list of numbers</b> (a vector, ~384 of them) that represents its <b>meaning</b>.</p>
+      <p>Texts about similar topics get <b>similar vectors</b> — so “close numbers” ≈ “close meaning”.</p>
+      <p>Search = “which stored chunks are numerically closest to the question?” This is <b class="accent">semantic search</b> — matches meaning, not keywords.</p>
+    </div>
+    <div class="card" style="font-size:.72em;">
+      <b>Think of a map 🗺️</b><br><br>
+      Every chunk gets a coordinate. “invoice” and “billing” land near each other even though the words differ.<br><br>
+      A question becomes a coordinate too — we just grab its nearest neighbours.
+    </div>
+  </div>
+  <div class="analogy" style="margin-top:18px;">
+    💡 In this project, embeddings run on a <b>local model</b> (<code>all-MiniLM-L6-v2</code>) on our own machine — <b class="good">free, private, no API call.</b>
+  </div>
+  <aside class="notes">Don't go deeper than "numbers that capture meaning, close = similar". The map analogy lands well with programmers (think k-nearest-neighbour).</aside>
+</section>
+
+<!-- 7 OUR STACK -->
+<section data-background-color="#0b0b14">
+  <h2>How <span class="accent">our</span> repo implements it</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>🚫 Myth-busting</h3>
+      <ul style="font-size:.92em;">
+        <li><b>No LlamaIndex / LangChain.</b> Hand-built from small libraries → less magic, easy to debug.</li>
+        <li>The LLM is <b class="warn">Google Gemini</b>, <u>not Claude</u>. Tokens here = Gemini tokens.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🧱 The pieces</h3>
+      <table>
+        <tr><th>Job</th><th>Tool</th></tr>
+        <tr><td>PDF text</td><td>pypdf</td></tr>
+        <tr><td>Embeddings</td><td>sentence-transformers <span class="good">(local)</span></td></tr>
+        <tr><td>Vector DB</td><td>ChromaDB <span class="good">(local disk)</span></td></tr>
+        <tr><td>LLM answer</td><td>Gemini 2.5 Flash <span class="warn">(API)</span></td></tr>
+        <tr><td>API server</td><td>FastAPI</td></tr>
+      </table>
+    </div>
+  </div>
+  <p class="center dim" style="margin-top:16px; font-size:.8em;">Two endpoints: <code class="accent">POST /ingest</code> &nbsp;·&nbsp; <code class="accent">POST /query</code> &nbsp;·&nbsp; persists to <code>./data/chroma</code></p>
+  <aside class="notes">Reassure the team: nothing exotic. If you can read Python you can read this whole repo in 20 minutes. Vector DB lives on disk, survives restarts.</aside>
+</section>
+
+<!-- 8 CODE MAP -->
+<section data-background-color="#0b0b14">
+  <h2>Where each step lives in the code</h2>
+  <pre><code data-trim data-noescape class="language-text">
+app/
+├─ main.py                 # wires up the two endpoints + /health
+├─ config.py               # knobs: chunk_size, top_k, model names, API key
+├─ routers/
+│  ├─ ingest.py            # PHASE 1: load → chunk → embed → store
+│  └─ query.py             # PHASE 2: embed → search → LLM → cite
+└─ services/
+   ├─ pdf.py               # extract text per page (pypdf)
+   ├─ chunking.py          # ~800 chars, 150 overlap, never mid-word
+   ├─ embeddings.py        # LOCAL model → vectors           [free]
+   ├─ vectorstore.py       # ChromaDB upsert + nearest search [free]
+   └─ llm.py               # Gemini prompt + answer        [TOKENS]
+  </code></pre>
+  <p class="center dim" style="font-size:.8em;">Read in this order: <span class="accent">ingest.py → query.py → llm.py</span></p>
+  <aside class="notes">Point them at llm.py specifically — it's where the prompt and the grounding rules live, and the only file that talks to a paid API.</aside>
+</section>
+
+<!-- 9 THE PROMPT -->
+<section data-background-color="#0b0b14">
+  <h2>The prompt we send Gemini <span class="dim" style="font-size:.5em;">(services/llm.py)</span></h2>
+  <pre><code data-trim data-noescape class="language-text">
+SYSTEM: Answer ONLY from the CONTEXT below. Do NOT use prior knowledge.
+        If the answer isn't there, reply EXACTLY:
+        "I can't answer that from the provided documents."
+        Cite facts inline as [source, page N].
+
+CONTEXT:
+[RFE letter, page 3]   &lt;chunk text…&gt;
+[RFE letter, page 5]   &lt;chunk text…&gt;
+… (the top-4 retrieved chunks) …
+
+QUESTION: &lt;the user's question&gt;
+  </code></pre>
+  <ul style="font-size:.8em;">
+    <li><b>temperature = 0</b> → deterministic, no creative drift.</li>
+    <li>If the model returns that refusal line → we mark <code>grounded:false</code> &amp; drop citations.</li>
+  </ul>
+  <aside class="notes">The system rules are what make it "grounded RAG" vs. a chatbot. The exact-match refusal sentence is how the code detects "not found".</aside>
+</section>
+
+<!-- 10 TOKENS -->
+<section data-background-color="#140f06">
+  <h2>💸 Where do <span class="warn">tokens</span> (cost) get used?</h2>
+  <p class="dim" style="margin-top:-6px;">A token ≈ ¾ of a word. APIs bill per token in + per token out.</p>
+  <table style="margin-top:10px;">
+    <tr><th>Step</th><th>LLM tokens?</th><th>Cost</th></tr>
+    <tr><td>PDF read · chunk</td><td>No</td><td class="good">free (local)</td></tr>
+    <tr><td><b>Embedding</b> (ingest + query)</td><td><b>No</b></td><td class="good">free — local model</td></tr>
+    <tr><td>Vector search</td><td>No</td><td class="good">free (local DB)</td></tr>
+    <tr><td><b>Generation — /query</b></td><td><b class="warn">YES — Gemini</b></td><td class="warn">paid, per question</td></tr>
+  </table>
+  <div class="analogy" style="margin-top:18px; border-color:var(--warn); background:rgba(251,191,36,.08);">
+    🔑 <b>Ingesting a 100-page PDF costs ZERO tokens.</b> Only <b>asking questions</b> costs money — and only the final answer step.
+  </div>
+  <aside class="notes">This is the slide they'll quote back to management. Hammer: ingest free, query paid. Embeddings being local is the surprise for most people.</aside>
+</section>
+
+<!-- 11 TOKEN MATH + LEVERS -->
+<section data-background-color="#140f06">
+  <h2>One question's bill — and the levers</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3 class="warn">What you pay for per question</h3>
+      <ul style="font-size:.9em;">
+        <li><b>Input:</b> system rules + <b>4 chunks</b> + question<br>≈ 4 × ~800 chars ≈ <b>~900–1,000 tokens</b></li>
+        <li><b>Output:</b> length of the answer</li>
+      </ul>
+      <small>The retrieved chunks dominate the input cost.</small>
+    </div>
+    <div class="card">
+      <h3 class="accent">Knobs to cut cost</h3>
+      <ul style="font-size:.9em;">
+        <li>⬇️ <code>top_k</code> (default 4) — fewer chunks = fewer input tokens</li>
+        <li>⬇️ <code>chunk_size</code> (default 800)</li>
+        <li>✅ already on the cheap tier: <code>gemini-2.5-flash</code></li>
+        <li>♻️ re-ingesting is free — questions are the cost</li>
+      </ul>
+      <small>All in <code>app/config.py</code> / <code>.env</code></small>
+    </div>
+  </div>
+  <aside class="notes">top_k is the single biggest cost/quality dial. More chunks = better recall but more tokens. 4 is a sane default.</aside>
+</section>
+
+<!-- 12 DEMO -->
+<section data-background-color="#0b0b14">
+  <h2>Live demo</h2>
+  <pre><code data-trim data-noescape class="language-bash">
+# 1. start the service
+uvicorn app.main:app --reload
+
+# 2. ingest the sample PDF  →  one-time, FREE
+curl -X POST localhost:8000/ingest \
+  -H 'content-type: application/json' \
+  -d '{"path": "Compressed RFE letter (2).pdf"}'
+# → { source, pages, chunks_added }
+
+# 3. ask a question  →  spends Gemini tokens
+curl -X POST localhost:8000/query \
+  -H 'content-type: application/json' \
+  -d '{"question": "What does the letter ask for?"}'
+# → { answer, grounded: true, citations: [{source, page, snippet}] }
+  </code></pre>
+  <p class="dim center" style="font-size:.8em;">Then ask something <i>not</i> in the PDF → watch it refuse instead of guessing.</p>
+  <aside class="notes">If live demo is risky, screenshot the two responses beforehand. Show the citations array — that's the "grounding" payoff made visible.</aside>
+</section>
+
+<!-- 13 TLDR -->
+<section class="center" data-background-gradient="radial-gradient(circle at 50% 40%, #1b2540, #0b0b14)">
+  <h2>TL;DR for the team</h2>
+  <div style="display:inline-block; text-align:left; margin-top:14px;">
+    <p>1️⃣ It's <b class="accent">RAG</b>: store doc pieces → retrieve relevant ones → LLM answers from them only.</p>
+    <p>2️⃣ <b>Hand-built, no LlamaIndex</b> — just small, readable libraries.</p>
+    <p>3️⃣ <b class="good">Embeddings + search are local &amp; free.</b> Only the <b class="warn">Gemini</b> answer step costs tokens.</p>
+    <p>4️⃣ <b>Ingest once (free), query many times (paid).</b></p>
+  </div>
+  <p class="dim" style="margin-top:30px; font-size:.7em;">Questions? &nbsp;·&nbsp; Deep-dive doc: <code>WALKTHROUGH.md</code></p>
+  <aside class="notes">End here. If time remains, open llm.py and config.py live.</aside>
+</section>
+
+</div></div>
+<div class="footer">Local RAG POC</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<script>
+  Reveal.initialize({
+    hash:true, slideNumber:'c/t', transition:'slide',
+    width:1280, height:720, margin:0.06,
+    plugins:[ RevealHighlight, RevealNotes ]
+  });
+</script>
+</body>
+</html>

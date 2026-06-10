@@ -1,0 +1,9 @@
+venv/
+data/
+.env
+share/
+Compressed RFE letter*.pdf
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
